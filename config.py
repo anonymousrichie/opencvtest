@@ -22,11 +22,17 @@ class CameraConfig:
     width: int = 1280
     height: int = 720
     request_fps: int = 30
+    # Device index a virtual-webcam phone app (iVCam, DroidCam, EpocCam, ...)
+    # registers as -- unlike phone_url below, these present as an ordinary
+    # local camera device, not a network stream. Find it by probing indices
+    # with cv2.VideoCapture(i) until you see the phone's picture. Press 'k'
+    # at runtime to cycle between `index` and this.
+    ivcam_index: int | None = 2
     # Set this to stream from a phone instead of a local webcam -- the
     # MJPEG/RTSP URL a streaming app (e.g. "IP Webcam" on Android) prints on
     # screen, such as "http://192.168.1.50:8080/video". Overrides `index`
     # when set; see README.md "Using a phone as the camera".
-    phone_url: str | None = "http://192.168.0.2:8080/video"
+    phone_url: str | None = None  # e.g. "http://192.168.0.2:8080/video" -- set to switch to a phone stream
     # How long to wait for the phone stream to connect/deliver a frame
     # before giving up, in milliseconds. Without this, an unreachable phone
     # URL can hang cv2.VideoCapture for minutes with no feedback at all.

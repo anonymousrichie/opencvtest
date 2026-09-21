@@ -99,6 +99,41 @@ def main() -> int:
     tracker = IoUTracker(CONFIG.tracking)
     fps_counter = FPSCounter()
 
+    # Selectable camera sources -- press 'k' to cycle. PC Camera and iVCam
+    # (or any other virtual-webcam phone app) both present as ordinary local
+    # device indices; a Wi-Fi phone_url stream is offered too when set.
+    camera_sources: list[tuple[str, int | str]] = [("PC Camera", CONFIG.camera.index)]
+    if CONFIG.camera.ivcam_index is not None:
+        camera_sources.append(("iVCam", CONFIG.camera.ivcam_index))
+    if CONFIG.camera.phone_url:
+        camera_sources.append(("Phone (Wi-Fi)", CONFIG.camera.phone_url))
+
+    camera = Camera(CONFIG.camera)
+    try:
+        camera.open()
+    except CameraError as exc:
+        print(f"[FATAL] {exc}")
+        face_mesh.close()
+        hands.close()
+        return 1
+    # Line up the toggle with whichever source open() actually defaulted to
+    # (phone_url if configured, else index), so 'k' cycles forward from there.
+    camera_source_index = next(
+        (i for i, (_name, src) in enumerate(camera_sources) if src == camera.active_source), 0
+    )
+
+    def _switch_camera(name: str) -> str:
+        nonlocal camera_source_index
+        for i, (label, source) in enumerate(camera_sources):
+            if label == name:
+                try:
+                    camera.open(source)
+                    camera_source_index = i
+                    return f"Camera: {label}"
+                except CameraError as exc:
+                    return f"Couldn't switch to {label}: {exc}"
+        return "Unknown camera."
+
     def _select_power(name: str) -> str:
         nonlocal palm_power_index
         for i, (label, _effect) in enumerate(palm_powers):
@@ -190,6 +225,8 @@ def main() -> int:
         "hide hud": lambda: _set_hud(False),
         "sunglasses on": lambda: _set_sunglasses(True),
         "sunglasses off": lambda: _set_sunglasses(False),
+        "pc camera": lambda: _switch_camera("PC Camera"),
+        "ivcam": lambda: _switch_camera("iVCam"),
     }
 
     # Free-text commands -- anchored to the *start* of the utterance and
@@ -232,22 +269,14 @@ def main() -> int:
     show_emotion = CONFIG.display.show_emotion and emotion_recognizer is not None
     status_message = "Ready. Press 'e' to enroll, 'q' to quit."
 
-    camera = Camera(CONFIG.camera)
-    try:
-        camera.open()
-    except CameraError as exc:
-        print(f"[FATAL] {exc}")
-        face_mesh.close()
-        hands.close()
-        return 1
-
     cv2.namedWindow(CONFIG.display.window_name, cv2.WINDOW_NORMAL)
 
     print(
         "Cam IntelliSense running. Controls: q=quit  e=enroll  l=landmarks  g=gestures  m=emotion  "
         "d=drawing  c=clear canvas  z=undo  v=laptop-control HUD  f=sunglasses  r=voice control  t=speak-back  "
-        "s=cycle open-palm power (off/fire shield/Rasengan/repulsor)"
+        "k=switch camera  s=cycle open-palm power (off/fire shield/Rasengan/repulsor)"
     )
+    print(f"Camera: {camera_sources[camera_source_index][0]} (press 'k' to cycle: {[n for n, _ in camera_sources]})")
     print(
         "Drawing: 2 fingers=draw  pinch-fist=stretch last stroke  closed fist=erase  "
         "1 finger/3 fingers/index+pinky=pick color"
@@ -356,7 +385,8 @@ def main() -> int:
                     status_message,
                     f"Enrolled identities: {', '.join(database.names()) or 'none'}",
                     "q=quit  e=enroll  l=landmarks  g=gestures  m=emotion  d=drawing  c=clear  z=undo  v=HUD  "
-                    "f=sunglasses  r=voice  t=speak-back  s=palm power",
+                    "f=sunglasses  r=voice  t=speak-back  k=camera  s=palm power",
+                    f"Camera: {camera_sources[camera_source_index][0]}   "
                     f"Open-palm power: {palm_powers[palm_power_index][0]}",
                 ],
             )
@@ -401,6 +431,9 @@ def main() -> int:
             elif key == ord("t"):
                 voice_feedback.enabled = not voice_feedback.enabled
                 status_message = f"Spoken voice feedback {'ON' if voice_feedback.enabled else 'OFF'}"
+            elif key == ord("k"):
+                next_index = (camera_source_index + 1) % len(camera_sources)
+                status_message = _switch_camera(camera_sources[next_index][0])
             elif key == ord("s"):
                 palm_power_index = (palm_power_index + 1) % len(palm_powers)
                 status_message = f"Open-palm power: {palm_powers[palm_power_index][0]}"

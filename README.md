@@ -144,6 +144,7 @@ the previous one.
 | `v` | Toggle the laptop-control HUD (virtual buttons + hands-free mouse mode) |
 | `r` | Toggle voice control on/off |
 | `t` | Toggle spoken voice feedback on/off |
+| `k` | Cycle camera source (PC Camera / iVCam / phone Wi-Fi stream, whichever are configured) |
 
 ## Supported hand gestures
 
@@ -211,6 +212,7 @@ tiers (see `VoiceController._resolve` in `voice_control.py`):
    - "clear canvas" / "toggle drawing"
    - "fire shield" / "rasengan" / "repulsor blast" / "powers off"
    - "show hud" / "hide hud" / "sunglasses on" / "sunglasses off"
+   - "pc camera" / "ivcam" -- switch the video source live
 3. **Generic parametrized commands** (checked last, as a catch-all):
    - "set the volume to `N` percent" / "set the brightness to `N` percent" --
      an exact level, not just nudging one step at a time (brightness only
@@ -262,11 +264,27 @@ set `CameraConfig.phone_rotate` to how many degrees clockwise it needs to
 be rotated to come out upright -- `0`, `90`, `180`, or `270` (`90` is the
 default, since that's what a phone held upright typically needs).
 
-**Virtual webcam driver (DroidCam, EpocCam, etc.).** These install a
-Windows driver that makes the phone show up as an ordinary webcam device --
-no code changes needed at all, just set `CameraConfig.index` to whatever
-device number it registers as (check by cycling through 0, 1, 2, ... or
-looking in Device Manager).
+**Virtual webcam driver (iVCam, DroidCam, EpocCam, etc.).** These install a
+Windows driver that makes the phone show up as an ordinary local webcam
+device -- no URL, no timeout/rotation handling, it's just another device
+index. Find which index it registered as by probing a few:
+
+```python
+import cv2
+for i in range(5):
+    cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
+    print(i, cap.isOpened())
+    cap.release()
+```
+
+(or open each in a viewer/Device Manager to identify it visually), then set
+`CameraConfig.ivcam_index` to that number. With both `index` (your built-in
+webcam) and `ivcam_index` configured, **press `k` at runtime to cycle
+between them live** -- no restart needed, and switching keeps working
+even if the other source briefly fails to open (e.g. the phone app isn't
+running): it just stays on whichever camera was already active and reports
+the error instead of leaving the app with no camera at all. You can also
+say "pc camera" or "ivcam" by voice (after pressing `r`).
 
 ## Performance tuning
 
