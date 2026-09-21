@@ -25,12 +25,34 @@ class Camera:
         self._cap: cv2.VideoCapture | None = None
 
     def open(self) -> None:
-        """Open the configured camera index, raising CameraError on failure.
+        """Open the configured camera (or phone stream), raising CameraError
+        on failure.
 
         On Windows, DirectShow (CAP_DSHOW) opens faster and more reliably than
         the default MSMF backend on most laptops, so it is tried first there;
         CAP_ANY is used as a fallback (and as the only option elsewhere).
         """
+        if self._cfg.phone_url:
+            # A network stream, not a local device -- no backend fallback or
+            # width/height/fps hints apply (the phone's streaming app controls
+            # its own resolution). Explicit open/read timeouts matter here in
+            # a way they don't for a local device: without them, an
+            # unreachable URL can hang VideoCapture for minutes with zero
+            # feedback instead of failing fast.
+            timeout = self._cfg.phone_timeout_ms
+            cap = cv2.VideoCapture(
+                self._cfg.phone_url, cv2.CAP_FFMPEG,
+                [cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, timeout, cv2.CAP_PROP_READ_TIMEOUT_MSEC, timeout],
+            )
+            if cap.isOpened():
+                self._cap = cap
+                return
+            cap.release()
+            raise CameraError(
+                f"Could not connect to phone camera at {self._cfg.phone_url}. "
+                "Check the phone and this PC are on the same network and the streaming app is running."
+            )
+
         backends = [cv2.CAP_DSHOW, cv2.CAP_ANY] if platform.system() == "Windows" else [cv2.CAP_ANY]
         for backend in backends:
             cap = cv2.VideoCapture(self._cfg.index, backend)
@@ -44,13 +66,21 @@ class Camera:
         raise CameraError(f"Could not open camera index {self._cfg.index}.")
 
     def read(self) -> np.ndarray:
-        """Read one BGR frame, raising CameraError if the device stops delivering."""
+        """Read one BGR frame, raising CameraError if the device stops delivering.
+
+        A phone stream over Wi-Fi drops the occasional frame far more often
+        than a wired USB webcam does, so a couple of quick retries happen
+        here before giving up -- a local webcam (1 attempt) behaves exactly
+        as before.
+        """
         if self._cap is None:
             raise CameraError("Camera is not open. Call open() first.")
-        ok, frame = self._cap.read()
-        if not ok or frame is None:
-            raise CameraError("Failed to read frame from camera (disconnected?).")
-        return frame
+        attempts = 3 if self._cfg.phone_url else 1
+        for _ in range(attempts):
+            ok, frame = self._cap.read()
+            if ok and frame is not None:
+                return frame
+        raise CameraError("Failed to read frame from camera (disconnected?).")
 
     def release(self) -> None:
         if self._cap is not None:

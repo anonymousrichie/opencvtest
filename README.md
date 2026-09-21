@@ -234,6 +234,34 @@ they're left out rather than gated behind anything voice could bypass.
 Edit `CameraConfig.index` in `config.py` (0 is the default webcam; try 1, 2,
 ... for external cameras).
 
+## Using a phone as the camera
+
+Two ways to do this, depending on the app you use on the phone:
+
+**Network stream (no driver install, works cross-platform).** Install a
+streaming app on your phone that exposes an MJPEG/RTSP URL over Wi-Fi --
+["IP Webcam"](https://play.google.com/store/apps/details?id=com.pas.webcam)
+(Android, free) is the standard choice; for iPhone, apps like "IP Camera
+Lite" work the same way. Start streaming in the app -- it displays a URL
+like `http://192.168.1.50:8080/video`. Put that in `config.py`, on `CameraConfig.phone_url`:
+
+```python
+phone_url: str | None = "http://192.168.1.50:8080/video"
+```
+
+Your phone and PC need to be on the same Wi-Fi network. `camera.py` gives
+this path an explicit connect/read timeout (`CameraConfig.phone_timeout_ms`,
+default 8s) and a couple of quick read retries, since a Wi-Fi stream drops
+the occasional frame far more often than a wired webcam -- without the
+timeout, an unreachable URL would otherwise hang the app at startup for
+minutes with no feedback.
+
+**Virtual webcam driver (DroidCam, EpocCam, etc.).** These install a
+Windows driver that makes the phone show up as an ordinary webcam device --
+no code changes needed at all, just set `CameraConfig.index` to whatever
+device number it registers as (check by cycling through 0, 1, 2, ... or
+looking in Device Manager).
+
 ## Performance tuning
 
 If FPS is below target on your machine, in `config.py`:

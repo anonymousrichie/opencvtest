@@ -22,6 +22,15 @@ class CameraConfig:
     width: int = 1280
     height: int = 720
     request_fps: int = 30
+    # Set this to stream from a phone instead of a local webcam -- the
+    # MJPEG/RTSP URL a streaming app (e.g. "IP Webcam" on Android) prints on
+    # screen, such as "http://192.168.1.50:8080/video". Overrides `index`
+    # when set; see README.md "Using a phone as the camera".
+    phone_url: str | None = None
+    # How long to wait for the phone stream to connect/deliver a frame
+    # before giving up, in milliseconds. Without this, an unreachable phone
+    # URL can hang cv2.VideoCapture for minutes with no feedback at all.
+    phone_timeout_ms: int = 8000
 
 
 @dataclass
