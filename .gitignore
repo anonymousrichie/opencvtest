@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+models/*.onnx
+enrollment_data/
+.venv/
+.venv-1/
+.claude/

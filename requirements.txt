@@ -1,0 +1,8 @@
+opencv-contrib-python==4.10.0.84
+mediapipe==0.10.14
+numpy==1.26.4
+pyautogui==0.9.54
+SpeechRecognition==3.17.0
+sounddevice==0.5.6
+pycaw==20251023
+comtypes==1.4.16
