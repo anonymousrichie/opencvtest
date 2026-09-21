@@ -30,6 +30,7 @@ product.
 | `hud.py` | On-screen virtual buttons (media/apps/shortcuts) + a hands-free mouse-cursor mode |
 | `system_control.py` | `pyautogui`/`os.startfile` wrappers the HUD and voice commands call into |
 | `voice_control.py` | Background speech recognition (mic capture via `sounddevice`, transcription via Google's Web Speech API) mapped to app/laptop commands |
+| `voice_feedback.py` | Spoken feedback for voice commands (`pyttsx3`/SAPI5), on its own thread so speaking doesn't stall the video loop |
 | `overlay.py` | All `cv2.putText`/`cv2.rectangle` drawing, kept out of `main.py` |
 | `fps.py` | Rolling-window FPS counter |
 | `main.py` | Wires everything into the capture -> process -> display loop |
@@ -142,6 +143,7 @@ the previous one.
 | `f` | Toggle AR sunglasses |
 | `v` | Toggle the laptop-control HUD (virtual buttons + hands-free mouse mode) |
 | `r` | Toggle voice control on/off |
+| `t` | Toggle spoken voice feedback on/off |
 
 ## Supported hand gestures
 
@@ -179,10 +181,12 @@ the real OS mouse cursor, with a pinch as a click.
 
 ## Voice control
 
-Press `r` to start listening. Speech is captured via `sounddevice` and
-transcribed with Google's free Web Speech API (requires internet + a
-working microphone). Matching happens in three tiers (see
-`VoiceController._resolve` in `voice_control.py`):
+Press `r` to start listening, `t` to toggle spoken feedback (on by default --
+each command's result is read back aloud via `pyttsx3`/SAPI5, on its own
+background thread so it doesn't stall the video loop). Speech is captured
+via `sounddevice` and transcribed with Google's free Web Speech API
+(requires internet + a working microphone). Matching happens in three
+tiers (see `VoiceController._resolve` in `voice_control.py`):
 
 1. **Free-text commands**, anchored to the start of what you said, so a word
    inside whatever you're dictating can't accidentally trigger another
@@ -196,8 +200,14 @@ working microphone). Matching happens in three tiers (see
    - "copy" / "paste" / "cut" / "undo" / "redo" / "select all" / "save" / "find"
    - "new tab" / "close tab" / "refresh" / "take a screenshot" / "switch window"
    - "minimize window" / "maximize window" / "show desktop" / "close window"
+   - "snap window left" / "snap window right" / "task view"
+   - "new desktop" / "close desktop" / "next desktop" / "previous desktop"
+   - "task manager" / "open settings"
+   - "zoom in" / "zoom out" / "reset zoom" / "scroll up" / "scroll down"
+   - "left click" / "right click" / "double click"
    - "lock screen"
    - "open browser" / "open notepad" / "open calculator" / "open explorer"
+   - "open downloads" / "open documents" / "open desktop folder" / "open pictures"
    - "clear canvas" / "toggle drawing"
    - "fire shield" / "rasengan" / "repulsor blast" / "powers off"
    - "show hud" / "hide hud" / "sunglasses on" / "sunglasses off"
@@ -206,7 +216,13 @@ working microphone). Matching happens in three tiers (see
      an exact level, not just nudging one step at a time (brightness only
      works on displays that expose it over WMI, typically laptop panels)
    - "open `<any app>`" -- fuzzy-matches the name against your Start Menu
-     shortcuts, so it's not limited to the four apps hardcoded above
+     shortcuts, so it's not limited to the apps hardcoded above
+   - "close `<any app>`" -- the counterpart to "open": finds the running
+     process by name and terminates it. Matching is deliberately stricter
+     here (exact/prefix only, no fuzzy guessing) and a fixed list of core OS
+     processes (explorer, svchost, winlogon, ...) is refused outright,
+     since a wrong match here kills a process rather than just opening the
+     wrong window
 
 See `voice_commands`/`voice_priority_commands`/`voice_fallback_commands` in
 `main.py` to add more. Deliberately **not** included: shutdown, restart, or

@@ -204,6 +204,7 @@ class VoiceConfig:
     energy_threshold: int = 300  # minimum mic RMS level that counts as speech, before ambient calibration
     pause_threshold: float = 0.7  # seconds of silence that ends a phrase
     phrase_time_limit: float = 6.0  # max seconds captured per phrase
+    speak_feedback: bool = True  # speak each command's result aloud (toggle with 't')
 
 
 @dataclass

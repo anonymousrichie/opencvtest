@@ -5,6 +5,7 @@ enrollment workflow.
 """
 from __future__ import annotations
 
+import os
 import re
 import sys
 
@@ -32,6 +33,7 @@ from shield import ShieldEffect
 import system_control as sc
 from tracking import IoUTracker
 from voice_control import VoiceController
+from voice_feedback import VoiceFeedback
 
 _HAND_CONNECTIONS = mp.solutions.hands.HAND_CONNECTIONS
 
@@ -153,10 +155,31 @@ def main() -> int:
         "close window": sc.close_window,
         "lock screen": sc.lock_screen,
         "lock computer": sc.lock_screen,
+        "snap window left": sc.snap_left,
+        "snap window right": sc.snap_right,
+        "task view": sc.task_view,
+        "new desktop": sc.new_desktop,
+        "close desktop": sc.close_desktop,
+        "next desktop": sc.next_desktop,
+        "previous desktop": sc.prev_desktop,
+        "task manager": sc.open_task_manager,
+        "open settings": sc.open_settings,
+        "zoom in": sc.zoom_in,
+        "zoom out": sc.zoom_out,
+        "reset zoom": sc.zoom_reset,
+        "scroll up": sc.scroll_up,
+        "scroll down": sc.scroll_down,
+        "left click": sc.click,
+        "right click": sc.right_click,
+        "double click": sc.double_click,
         "open browser": lambda: sc.launch("https://www.google.com"),
         "open notepad": lambda: sc.launch("notepad.exe"),
         "open calculator": lambda: sc.launch("calc.exe"),
         "open explorer": lambda: sc.launch("explorer.exe"),
+        "open downloads": lambda: sc.launch(os.path.expanduser("~/Downloads")),
+        "open documents": lambda: sc.launch(os.path.expanduser("~/Documents")),
+        "open desktop folder": lambda: sc.launch(os.path.expanduser("~/Desktop")),
+        "open pictures": lambda: sc.launch(os.path.expanduser("~/Pictures")),
         "clear canvas": _clear_canvas,
         "toggle drawing": _toggle_drawing,
         "fire shield": lambda: _select_power("Fire Shield"),
@@ -192,9 +215,11 @@ def main() -> int:
             lambda m: sc.set_brightness(int(m.group(1) or m.group(2))),
         ),
         (re.compile(r"^open\s+(.+)$", re.IGNORECASE), lambda m: sc.open_app(m.group(1))),
+        (re.compile(r"^close\s+(.+)$", re.IGNORECASE), lambda m: sc.close_app(m.group(1))),
     ]
 
     voice = VoiceController(CONFIG.voice, voice_commands, voice_priority_commands, voice_fallback_commands)
+    voice_feedback = VoiceFeedback(enabled=CONFIG.voice.speak_feedback)
 
     try:
         emotion_recognizer: EmotionRecognizer | None = EmotionRecognizer(CONFIG.emotion)
@@ -220,7 +245,7 @@ def main() -> int:
 
     print(
         "Cam IntelliSense running. Controls: q=quit  e=enroll  l=landmarks  g=gestures  m=emotion  "
-        "d=drawing  c=clear canvas  z=undo  v=laptop-control HUD  f=sunglasses  r=voice control  "
+        "d=drawing  c=clear canvas  z=undo  v=laptop-control HUD  f=sunglasses  r=voice control  t=speak-back  "
         "s=cycle open-palm power (off/fire shield/Rasengan/repulsor)"
     )
     print(
@@ -251,6 +276,7 @@ def main() -> int:
             voice_status = voice.process_pending()
             if voice_status:
                 status_message = voice_status
+                voice_feedback.say(voice_status.split(" -> ", 1)[-1])
 
             faces = detector.detect(frame)
             tracks = tracker.update([f.bbox for f in faces])
@@ -330,7 +356,7 @@ def main() -> int:
                     status_message,
                     f"Enrolled identities: {', '.join(database.names()) or 'none'}",
                     "q=quit  e=enroll  l=landmarks  g=gestures  m=emotion  d=drawing  c=clear  z=undo  v=HUD  "
-                    "f=sunglasses  r=voice  s=palm power",
+                    "f=sunglasses  r=voice  t=speak-back  s=palm power",
                     f"Open-palm power: {palm_powers[palm_power_index][0]}",
                 ],
             )
@@ -372,6 +398,9 @@ def main() -> int:
                 status_message = f"Sunglasses {'ON' if face_filters.enabled else 'OFF'}"
             elif key == ord("r"):
                 status_message = voice.stop() if voice.listening else voice.start()
+            elif key == ord("t"):
+                voice_feedback.enabled = not voice_feedback.enabled
+                status_message = f"Spoken voice feedback {'ON' if voice_feedback.enabled else 'OFF'}"
             elif key == ord("s"):
                 palm_power_index = (palm_power_index + 1) % len(palm_powers)
                 status_message = f"Open-palm power: {palm_powers[palm_power_index][0]}"

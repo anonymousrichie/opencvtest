@@ -11,8 +11,18 @@ import difflib
 import os
 import urllib.parse
 
+import psutil
 import pyautogui
 from pycaw.pycaw import AudioUtilities
+
+# Never terminate these via close_app(), regardless of how the spoken name
+# matches -- these are core OS processes where killing the wrong one can
+# destabilize the whole session, not just close an app.
+_PROTECTED_PROCESSES = {
+    "system", "system idle process", "registry", "smss", "csrss", "wininit",
+    "winlogon", "services", "lsass", "svchost", "dwm", "explorer", "fontdrvhost",
+    "memory compression", "runtimebroker", "sihost", "taskhostw", "ctfmon",
+}
 
 # A held-open video loop calls move_cursor() every frame, so the default
 # ~0.1s PAUSE after every pyautogui call would tank the frame rate. FAILSAFE
@@ -143,6 +153,44 @@ def open_app(name: str) -> str:
     return f"Opening {match}"
 
 
+def close_app(name: str) -> str:
+    """Terminate any running process matching (spoken) `name` -- the
+    counterpart to open_app(). Deliberately stricter than open_app's
+    matching (exact or prefix only, no loose "contains" or fuzzy match):
+    a wrong match here kills a process instead of just opening the wrong
+    window, and protected core OS processes are refused outright."""
+    name = name.strip()
+    if not name:
+        return "No app name heard."
+    lname = name.lower()
+    if lname in _PROTECTED_PROCESSES:
+        return f"Won't close '{name}' -- that's a core system process."
+
+    matches = []
+    for proc in psutil.process_iter(["name"]):
+        pname = proc.info.get("name") or ""
+        base = pname.rsplit(".", 1)[0].lower()
+        if not base or base in _PROTECTED_PROCESSES:
+            continue  # skip unnamed processes -- an empty base is a prefix of everything
+        if base == lname or base.startswith(lname) or lname.startswith(base):
+            matches.append(proc)
+
+    if not matches:
+        return f"No running app found matching '{name}'."
+
+    closed = set()
+    for proc in matches:
+        try:
+            proc.terminate()
+            closed.add(proc.info.get("name"))
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+
+    if not closed:
+        return f"Couldn't close '{name}' (access denied?)."
+    return f"Closed {', '.join(sorted(closed))}"
+
+
 def type_text(text: str) -> str:
     """Type literal text into whatever has focus -- dictation."""
     text = text.strip()
@@ -229,6 +277,86 @@ def close_window() -> str:
 def lock_screen() -> str:
     pyautogui.hotkey("win", "l")
     return "Locked"
+
+
+def snap_left() -> str:
+    pyautogui.hotkey("win", "left")
+    return "Snapped left"
+
+
+def snap_right() -> str:
+    pyautogui.hotkey("win", "right")
+    return "Snapped right"
+
+
+def task_view() -> str:
+    pyautogui.hotkey("win", "tab")
+    return "Task view"
+
+
+def new_desktop() -> str:
+    pyautogui.hotkey("ctrl", "win", "d")
+    return "New virtual desktop"
+
+
+def close_desktop() -> str:
+    pyautogui.hotkey("ctrl", "win", "f4")
+    return "Closed virtual desktop"
+
+
+def next_desktop() -> str:
+    pyautogui.hotkey("ctrl", "win", "right")
+    return "Next virtual desktop"
+
+
+def prev_desktop() -> str:
+    pyautogui.hotkey("ctrl", "win", "left")
+    return "Previous virtual desktop"
+
+
+def open_task_manager() -> str:
+    pyautogui.hotkey("ctrl", "shift", "esc")
+    return "Task Manager"
+
+
+def open_settings() -> str:
+    pyautogui.hotkey("win", "i")
+    return "Settings"
+
+
+def zoom_in() -> str:
+    pyautogui.hotkey("ctrl", "+")
+    return "Zoomed in"
+
+
+def zoom_out() -> str:
+    pyautogui.hotkey("ctrl", "-")
+    return "Zoomed out"
+
+
+def zoom_reset() -> str:
+    pyautogui.hotkey("ctrl", "0")
+    return "Zoom reset"
+
+
+def scroll_up() -> str:
+    pyautogui.scroll(400)
+    return "Scrolled up"
+
+
+def scroll_down() -> str:
+    pyautogui.scroll(-400)
+    return "Scrolled down"
+
+
+def right_click() -> str:
+    pyautogui.rightClick()
+    return "Right click"
+
+
+def double_click() -> str:
+    pyautogui.doubleClick()
+    return "Double click"
 
 
 def set_brightness(percent: float) -> str:
