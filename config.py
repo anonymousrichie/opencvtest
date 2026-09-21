@@ -26,11 +26,15 @@ class CameraConfig:
     # MJPEG/RTSP URL a streaming app (e.g. "IP Webcam" on Android) prints on
     # screen, such as "http://192.168.1.50:8080/video". Overrides `index`
     # when set; see README.md "Using a phone as the camera".
-    phone_url: str | None = None
+    phone_url: str | None = "http://192.168.0.2:8080/video"
     # How long to wait for the phone stream to connect/deliver a frame
     # before giving up, in milliseconds. Without this, an unreachable phone
     # URL can hang cv2.VideoCapture for minutes with no feedback at all.
     phone_timeout_ms: int = 8000
+    # Streaming apps often ship the raw (landscape) sensor frame regardless
+    # of how the phone is actually held, so a phone held upright arrives
+    # sideways. Degrees clockwise to rotate phone_url frames: 0/90/180/270.
+    phone_rotate: int = 90
 
 
 @dataclass

@@ -256,6 +256,12 @@ the occasional frame far more often than a wired webcam -- without the
 timeout, an unreachable URL would otherwise hang the app at startup for
 minutes with no feedback.
 
+Streaming apps commonly ship the raw sensor frame regardless of how the
+phone is actually held, so if the picture comes in sideways or upside down,
+set `CameraConfig.phone_rotate` to how many degrees clockwise it needs to
+be rotated to come out upright -- `0`, `90`, `180`, or `270` (`90` is the
+default, since that's what a phone held upright typically needs).
+
 **Virtual webcam driver (DroidCam, EpocCam, etc.).** These install a
 Windows driver that makes the phone show up as an ordinary webcam device --
 no code changes needed at all, just set `CameraConfig.index` to whatever

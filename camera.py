@@ -8,6 +8,12 @@ import numpy as np
 
 from config import CameraConfig
 
+_ROTATIONS = {
+    90: cv2.ROTATE_90_CLOCKWISE,
+    180: cv2.ROTATE_180,
+    270: cv2.ROTATE_90_COUNTERCLOCKWISE,
+}
+
 
 class CameraError(RuntimeError):
     """Raised when the requested camera cannot be opened or read from."""
@@ -79,7 +85,8 @@ class Camera:
         for _ in range(attempts):
             ok, frame = self._cap.read()
             if ok and frame is not None:
-                return frame
+                rotation = _ROTATIONS.get(self._cfg.phone_rotate) if self._cfg.phone_url else None
+                return cv2.rotate(frame, rotation) if rotation is not None else frame
         raise CameraError("Failed to read frame from camera (disconnected?).")
 
     def release(self) -> None:
