@@ -5,6 +5,7 @@ enrollment workflow.
 """
 from __future__ import annotations
 
+import re
 import sys
 
 import cv2
@@ -121,7 +122,7 @@ def main() -> int:
         return f"Laptop-control HUD {'ON' if visible else 'OFF'}"
 
     # Spoken phrases -> handler. Matched by substring containment against
-    # what Google's Web Speech API transcribed (see VoiceController._match),
+    # what Google's Web Speech API transcribed (see VoiceController._match_fixed),
     # so phrases are picked to be distinctive and unlikely to appear inside
     # each other or ordinary speech.
     voice_commands = {
@@ -135,8 +136,23 @@ def main() -> int:
         "previous track": sc.prev_track,
         "copy": sc.copy,
         "paste": sc.paste,
+        "cut": sc.cut,
+        "undo": sc.undo,
+        "redo": sc.redo,
+        "select all": sc.select_all,
+        "save": sc.save,
+        "find": sc.find,
+        "new tab": sc.new_tab,
+        "close tab": sc.close_tab,
+        "refresh": sc.refresh,
         "take a screenshot": sc.screenshot,
         "switch window": sc.alt_tab,
+        "minimize window": sc.minimize_window,
+        "maximize window": sc.maximize_window,
+        "show desktop": sc.show_desktop,
+        "close window": sc.close_window,
+        "lock screen": sc.lock_screen,
+        "lock computer": sc.lock_screen,
         "open browser": lambda: sc.launch("https://www.google.com"),
         "open notepad": lambda: sc.launch("notepad.exe"),
         "open calculator": lambda: sc.launch("calc.exe"),
@@ -152,7 +168,33 @@ def main() -> int:
         "sunglasses on": lambda: _set_sunglasses(True),
         "sunglasses off": lambda: _set_sunglasses(False),
     }
-    voice = VoiceController(CONFIG.voice, voice_commands, volume_handler=sc.set_volume)
+
+    # Free-text commands -- anchored to the *start* of the utterance and
+    # checked before anything else, so a word like "copy" inside whatever
+    # you're dictating can't accidentally trigger the "copy" command above.
+    voice_priority_commands = [
+        (re.compile(r"^type\s+(.+)$", re.IGNORECASE), lambda m: sc.type_text(m.group(1))),
+        (re.compile(r"^(?:search for|google)\s+(.+)$", re.IGNORECASE), lambda m: sc.web_search(m.group(1))),
+    ]
+
+    # Generic parametrized commands -- checked only after the fixed phrases
+    # above, so e.g. "open notepad" still gets the reliable hardcoded path
+    # rather than a fuzzy Start Menu search, but "open spotify" (or anything
+    # else not special-cased) still works.
+    _PERCENT_RE = r"{word}.{{0,20}}?(\d{{1,3}})\s*(?:percent|%)|(\d{{1,3}})\s*(?:percent|%).{{0,20}}?{word}"
+    voice_fallback_commands = [
+        (
+            re.compile(_PERCENT_RE.format(word="volume"), re.IGNORECASE),
+            lambda m: sc.set_volume(int(m.group(1) or m.group(2))),
+        ),
+        (
+            re.compile(_PERCENT_RE.format(word="brightness"), re.IGNORECASE),
+            lambda m: sc.set_brightness(int(m.group(1) or m.group(2))),
+        ),
+        (re.compile(r"^open\s+(.+)$", re.IGNORECASE), lambda m: sc.open_app(m.group(1))),
+    ]
+
+    voice = VoiceController(CONFIG.voice, voice_commands, voice_priority_commands, voice_fallback_commands)
 
     try:
         emotion_recognizer: EmotionRecognizer | None = EmotionRecognizer(CONFIG.emotion)
@@ -184,6 +226,10 @@ def main() -> int:
     print(
         "Drawing: 2 fingers=draw  pinch-fist=stretch last stroke  closed fist=erase  "
         "1 finger/3 fingers/index+pinky=pick color"
+    )
+    print(
+        "Voice (after 'r'): 'volume/brightness up/down/to N percent', 'open <any app>', "
+        "'type <text>', 'search for <query>', 'lock screen', 'save', 'undo', ... -- see README.md"
     )
 
     try:

@@ -181,20 +181,37 @@ the real OS mouse cursor, with a pinch as a click.
 
 Press `r` to start listening. Speech is captured via `sounddevice` and
 transcribed with Google's free Web Speech API (requires internet + a
-working microphone), matched against a fixed set of command phrases. Say
-things like:
+working microphone). Matching happens in three tiers (see
+`VoiceController._resolve` in `voice_control.py`):
 
-- "volume up" / "volume down" / "mute" / "set volume to 50 percent" (any exact level, not just one step at a time)
-- "play music" / "next track" / "previous track"
-- "copy" / "paste" / "take a screenshot" / "switch window"
-- "open browser" / "open notepad" / "open calculator" / "open explorer"
-- "clear canvas" / "toggle drawing"
-- "fire shield" / "rasengan" / "repulsor blast" / "powers off"
-- "show hud" / "hide hud" / "sunglasses on" / "sunglasses off"
+1. **Free-text commands**, anchored to the start of what you said, so a word
+   inside whatever you're dictating can't accidentally trigger another
+   command:
+   - "type `<anything>`" -- types it into whatever has focus (dictation)
+   - "search for `<anything>`" / "google `<anything>`" -- opens a Google
+     search for it in your browser
+2. **Fixed phrases** (matched anywhere in the sentence):
+   - "volume up" / "volume down" / "mute"
+   - "play music" / "next track" / "previous track"
+   - "copy" / "paste" / "cut" / "undo" / "redo" / "select all" / "save" / "find"
+   - "new tab" / "close tab" / "refresh" / "take a screenshot" / "switch window"
+   - "minimize window" / "maximize window" / "show desktop" / "close window"
+   - "lock screen"
+   - "open browser" / "open notepad" / "open calculator" / "open explorer"
+   - "clear canvas" / "toggle drawing"
+   - "fire shield" / "rasengan" / "repulsor blast" / "powers off"
+   - "show hud" / "hide hud" / "sunglasses on" / "sunglasses off"
+3. **Generic parametrized commands** (checked last, as a catch-all):
+   - "set the volume to `N` percent" / "set the brightness to `N` percent" --
+     an exact level, not just nudging one step at a time (brightness only
+     works on displays that expose it over WMI, typically laptop panels)
+   - "open `<any app>`" -- fuzzy-matches the name against your Start Menu
+     shortcuts, so it's not limited to the four apps hardcoded above
 
-See the `voice_commands` dict in `main.py` to add more. Recognized phrases
-are matched as substrings, so exact wording ("please turn the volume up")
-still works as long as it contains a known phrase.
+See `voice_commands`/`voice_priority_commands`/`voice_fallback_commands` in
+`main.py` to add more. Deliberately **not** included: shutdown, restart, or
+sign-out -- those are one misheard phrase away from losing unsaved work, so
+they're left out rather than gated behind anything voice could bypass.
 
 ## Changing the camera
 

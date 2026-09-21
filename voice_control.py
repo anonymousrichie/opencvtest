@@ -11,11 +11,27 @@ for transcription.
 
 All of that -- capture, endpointing, network transcription -- runs on a
 background thread, since it takes real time the video loop can't block on.
-The thread only matches recognized text to a command phrase and queues it;
-the actual handler runs on the main thread each frame via
-`process_pending()`, so command handlers (which touch pyautogui, the
+The thread only resolves recognized text to a zero-arg callable (a fixed
+phrase's handler, or a regex command's handler pre-bound with its captured
+group) and queues it; the callable itself only ever runs on the main thread,
+via `process_pending()`, so command handlers (which touch pyautogui, the
 drawing canvas, the HUD, etc.) never run concurrently with the rest of the
 app or each other.
+
+Three tiers of matching, in priority order, let voice cover a much wider
+surface than a fixed phrase list ever could:
+
+1. `priority_commands` -- regex patterns anchored to the start of the
+   utterance (e.g. "type ...", "search for ..."), checked first and
+   exclusively of everything else. Anchoring means a command like "copy"
+   can't accidentally fire just because the word appears inside whatever
+   the user is dictating.
+2. `commands` -- a fixed phrase -> zero-arg handler dict, matched by
+   substring containment (longest phrase wins ties). This is the simple
+   case for one-shot actions ("volume up", "copy", "lock screen", ...).
+3. `fallback_commands` -- regex patterns checked last, for
+   parametrized-but-generic actions ("open <anything>", "set the volume to
+   N percent") that would otherwise be too broad to risk matching first.
 """
 from __future__ import annotations
 
@@ -31,16 +47,10 @@ import speech_recognition as sr
 from config import VoiceConfig
 
 CommandHandlers = dict[str, Callable[[], str]]
+ParamCommand = tuple[re.Pattern, Callable[[re.Match], str]]
 
 _SAMPLE_RATE = 16000
 _BLOCK_DURATION = 0.1  # seconds per audio block read from the mic
-_ERROR = "__error__"
-_VOLUME_PERCENT = "__volume_percent__"
-# Matches "volume ... 50 percent" or "50 percent ... volume" so either
-# spoken order ("set the volume to 50 percent" / "50 percent volume") works.
-_VOLUME_PATTERN = re.compile(
-    r"volume.{0,20}?(\d{1,3})\s*(?:percent|%)|(\d{1,3})\s*(?:percent|%).{0,20}?volume"
-)
 
 
 def _rms(block: np.ndarray) -> float:
@@ -48,16 +58,21 @@ def _rms(block: np.ndarray) -> float:
 
 
 class VoiceController:
-    """Listens for short voice commands and queues them for the main thread."""
+    """Listens for voice commands and queues them for the main thread."""
 
     def __init__(
-        self, cfg: VoiceConfig, commands: CommandHandlers, volume_handler: Callable[[int], str] | None = None,
+        self,
+        cfg: VoiceConfig,
+        commands: CommandHandlers,
+        priority_commands: list[ParamCommand] | None = None,
+        fallback_commands: list[ParamCommand] | None = None,
     ) -> None:
         self._cfg = cfg
         self._commands = commands
-        self._volume_handler = volume_handler
+        self._priority_commands = priority_commands or []
+        self._fallback_commands = fallback_commands or []
         self._recognizer = sr.Recognizer()
-        self._pending: queue.Queue[tuple[str, str, int | None]] = queue.Queue()
+        self._pending: queue.Queue[tuple[str, Callable[[], str]]] = queue.Queue()
         self._audio_queue: queue.Queue[np.ndarray] = queue.Queue()
         self._stream: sd.InputStream | None = None
         self._worker: threading.Thread | None = None
@@ -82,7 +97,7 @@ class VoiceController:
         self._worker = threading.Thread(target=self._listen_loop, args=(threshold,), daemon=True)
         self._worker.start()
         self.listening = True
-        return "Voice control ON -- try 'volume up', 'open browser', 'clear canvas', ..."
+        return "Voice control ON -- try 'volume up', 'open spotify', 'type hello', 'search for cats', ..."
 
     def stop(self) -> str:
         if not self.listening:
@@ -135,29 +150,36 @@ class VoiceController:
         audio_np = np.concatenate(buffer, axis=0)
         audio_data = sr.AudioData(audio_np.tobytes(), _SAMPLE_RATE, 2)
         try:
-            text = self._recognizer.recognize_google(audio_data, language=self._cfg.language).lower().strip()
+            raw_text = self._recognizer.recognize_google(audio_data, language=self._cfg.language)
         except sr.UnknownValueError:
             return
         except sr.RequestError as exc:
-            self._pending.put((_ERROR, f"Voice recognition service unreachable: {exc}"))
+            self._pending.put(("(voice)", lambda exc=exc: f"Voice recognition service unreachable: {exc}"))
             return
 
-        self.last_heard = text
+        self.last_heard = raw_text
+        run = self._resolve(raw_text)
+        if run is not None:
+            self._pending.put((raw_text, run))
 
-        # An exact percentage ("set volume to 30 percent") takes priority
-        # over the relative "volume up"/"volume down" commands, since it's
-        # the more specific request.
-        volume_match = _VOLUME_PATTERN.search(text)
-        if volume_match is not None and self._volume_handler is not None:
-            percent = int(volume_match.group(1) or volume_match.group(2))
-            self._pending.put((_VOLUME_PERCENT, text, percent))
-            return
+    def _resolve(self, raw_text: str) -> Callable[[], str] | None:
+        for pattern, handler in self._priority_commands:
+            m = pattern.search(raw_text)
+            if m:
+                return lambda m=m, handler=handler: handler(m)
 
-        command = self._match(text)
-        if command is not None:
-            self._pending.put((command, text, None))
+        text = raw_text.lower().strip()
+        phrase = self._match_fixed(text)
+        if phrase is not None:
+            return self._commands[phrase]
 
-    def _match(self, text: str) -> str | None:
+        for pattern, handler in self._fallback_commands:
+            m = pattern.search(raw_text)
+            if m:
+                return lambda m=m, handler=handler: handler(m)
+        return None
+
+    def _match_fixed(self, text: str) -> str | None:
         # Longest phrase first, so a more specific command wins over a
         # shorter one that happens to be a substring of what was said.
         for phrase in sorted(self._commands, key=len, reverse=True):
@@ -171,21 +193,12 @@ class VoiceController:
         status = None
         while True:
             try:
-                command, heard, payload = self._pending.get_nowait()
+                heard, run = self._pending.get_nowait()
             except queue.Empty:
                 break
-            if command == _ERROR:
-                status = heard
-                continue
-            if command == _VOLUME_PERCENT:
-                handler: Callable[[], str] = lambda: self._volume_handler(payload)  # noqa: E731
-            else:
-                handler = self._commands.get(command)
-                if handler is None:
-                    continue
             try:
-                result = handler()
+                result = run()
             except Exception as exc:  # noqa: BLE001 -- never let a bad voice command crash the video loop
-                result = f"[ERROR] '{command}': {exc}"
+                result = f"[ERROR] {exc}"
             status = f"Heard '{heard}' -> {result}"
         return status

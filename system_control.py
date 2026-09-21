@@ -7,7 +7,9 @@ to call these, never *how* the underlying OS call works.
 """
 from __future__ import annotations
 
+import difflib
 import os
+import urllib.parse
 
 import pyautogui
 from pycaw.pycaw import AudioUtilities
@@ -19,6 +21,11 @@ pyautogui.FAILSAFE = True
 pyautogui.PAUSE = 0
 
 SCREEN_WIDTH, SCREEN_HEIGHT = pyautogui.size()
+
+_START_MENU_DIRS = [
+    os.path.join(os.environ.get("APPDATA", ""), r"Microsoft\Windows\Start Menu\Programs"),
+    os.path.join(os.environ.get("PROGRAMDATA", r"C:\ProgramData"), r"Microsoft\Windows\Start Menu\Programs"),
+]
 
 
 def play_pause() -> str:
@@ -86,6 +93,162 @@ def launch(command: str) -> str:
     """Open an app, path, or URL the way double-clicking it would."""
     os.startfile(command)
     return f"Launched {command}"
+
+
+def _iter_start_menu_shortcuts() -> dict[str, str]:
+    shortcuts: dict[str, str] = {}
+    for base in _START_MENU_DIRS:
+        if not os.path.isdir(base):
+            continue
+        for root, _dirs, files in os.walk(base):
+            for fname in files:
+                if fname.lower().endswith((".lnk", ".url")):
+                    name = os.path.splitext(fname)[0]
+                    shortcuts.setdefault(name, os.path.join(root, fname))
+    return shortcuts
+
+
+def open_app(name: str) -> str:
+    """Open any installed app by (spoken) name, by fuzzy-matching it against
+    the Start Menu's shortcuts -- unlike `launch`, this needs no hardcoded
+    path for each app."""
+    name = name.strip()
+    if not name:
+        return "No app name heard."
+
+    shortcuts = _iter_start_menu_shortcuts()
+    if not shortcuts:
+        # No Start Menu shortcuts found (unusual) -- fall back to letting
+        # Windows resolve it directly, e.g. if it's on PATH.
+        try:
+            os.startfile(name)
+            return f"Launched {name}"
+        except OSError as exc:
+            return f"Couldn't find or launch '{name}': {exc}"
+
+    lname = name.lower()
+    exact = [n for n in shortcuts if n.lower() == lname]
+    substring = [n for n in shortcuts if lname in n.lower() or n.lower() in lname]
+    match = exact[0] if exact else (substring[0] if substring else None)
+    if match is None:
+        # A tight cutoff matters here more than for a typical fuzzy search --
+        # this is a live launch action, not a suggestion, so a wrong match
+        # opens the wrong app rather than just annoying with a bad guess.
+        close = difflib.get_close_matches(name, list(shortcuts), n=1, cutoff=0.65)
+        match = close[0] if close else None
+
+    if match is None:
+        return f"Couldn't find an app named '{name}'."
+    os.startfile(shortcuts[match])
+    return f"Opening {match}"
+
+
+def type_text(text: str) -> str:
+    """Type literal text into whatever has focus -- dictation."""
+    text = text.strip()
+    if not text:
+        return "Nothing to type."
+    pyautogui.write(text, interval=0.02)
+    return f"Typed: {text}"
+
+
+def web_search(query: str) -> str:
+    query = query.strip()
+    if not query:
+        return "No search query heard."
+    url = "https://www.google.com/search?q=" + urllib.parse.quote(query)
+    os.startfile(url)
+    return f"Searching: {query}"
+
+
+def select_all() -> str:
+    pyautogui.hotkey("ctrl", "a")
+    return "Select all"
+
+
+def cut() -> str:
+    pyautogui.hotkey("ctrl", "x")
+    return "Cut"
+
+
+def undo() -> str:
+    pyautogui.hotkey("ctrl", "z")
+    return "Undo"
+
+
+def redo() -> str:
+    pyautogui.hotkey("ctrl", "y")
+    return "Redo"
+
+
+def save() -> str:
+    pyautogui.hotkey("ctrl", "s")
+    return "Save"
+
+
+def find() -> str:
+    pyautogui.hotkey("ctrl", "f")
+    return "Find"
+
+
+def new_tab() -> str:
+    pyautogui.hotkey("ctrl", "t")
+    return "New tab"
+
+
+def close_tab() -> str:
+    pyautogui.hotkey("ctrl", "w")
+    return "Close tab"
+
+
+def refresh() -> str:
+    pyautogui.press("f5")
+    return "Refresh"
+
+
+def minimize_window() -> str:
+    pyautogui.hotkey("win", "down")
+    return "Minimize window"
+
+
+def maximize_window() -> str:
+    pyautogui.hotkey("win", "up")
+    return "Maximize window"
+
+
+def show_desktop() -> str:
+    pyautogui.hotkey("win", "d")
+    return "Show desktop"
+
+
+def close_window() -> str:
+    pyautogui.hotkey("alt", "f4")
+    return "Close window"
+
+
+def lock_screen() -> str:
+    pyautogui.hotkey("win", "l")
+    return "Locked"
+
+
+def set_brightness(percent: float) -> str:
+    """Set screen brightness to an exact level (0-100) via WMI. Only works
+    on displays that expose DDC/CI brightness control this way -- typically
+    laptop panels, not most external monitors -- so failures are reported
+    rather than raised."""
+    percent = max(0, min(100, round(percent)))
+    try:
+        import wmi
+
+        c = wmi.WMI(namespace="wmi")
+        methods = c.WmiMonitorBrightnessMethods()
+        if not methods:
+            return "No brightness-controllable display found."
+        for method in methods:
+            method.WmiSetBrightness(percent, 0)
+        return f"Brightness set to {percent}%"
+    except Exception as exc:  # noqa: BLE001 -- WMI errors vary by hardware; report, don't crash
+        return f"Couldn't set brightness: {exc}"
 
 
 def move_cursor(x: int, y: int) -> None:
